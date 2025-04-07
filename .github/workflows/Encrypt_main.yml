@@ -1,26 +1,34 @@
-- name: Download & Encrypt
-  if: steps.check_diff.outputs.DIFF == 'true'
-  env:
-    ENCRYPT_KEY: ${{ secrets.ENCRYPT_KEY }}
-  run: |
-    # 下载源文件（保持原始文件名）
-    curl -s "https://raw.githubusercontent.com/xrw002/edgetunnel/main/_worker.js" -o _temp.js
-    
-    # 使用双引号包裹seed参数（关键修复）
-    javascript-obfuscator _temp.js \
-      --compact true \
-      --controlFlowFlattening true \
-      --stringArrayEncoding rc4 \
-      --stringArrayThreshold 1 \
-      --rotateStringArray true \
-      --splitStrings true \
-      --identifierNamesGenerator hexadecimal \
-      --identifiersPrefix 'edge_' \
-      --renameGlobals true \
-      --transformObjectKeys true \
-      --seed "${{ secrets.ENCRYPT_KEY }}" \  # 添加双引号
-      -o src/edge-prod.js
-    
-    # 保存commit记录（使用校验码防篡改）
-    echo "${{ steps.get_commit.outputs.latest_commit }}" > last_commit.txt
-    md5sum src/edge-prod.js | cut -d ' ' -f1 >> last_commit.txt
+name: Encrypt edge.js on Change
+
+on:
+  push:
+    branches:
+      - main  # 根据你的主分支名称调整
+    paths:
+      - '明文源码.js'  # 替换为文件的实际路径
+
+jobs:
+  encrypt-edge:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up OpenSSL
+        run: sudo apt-get update && sudo apt-get install -y openssl
+
+      - name: Encrypt edge.js
+        run: |
+          openssl aes-256-cbc -in 明文源码.js -out edge.enc -pass pass:${{ secrets.ENCRYPTION_KEY }}
+        # 注意：加密后的文件为 edge.enc，建议将 .enc 文件添加到 .gitignore
+
+      - name: Commit and push encrypted file
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add path/to/edge.enc
+          git commit -m "Auto-encrypt edge.js [skip ci]"  # 使用 [skip ci] 避免循环触发
+          git push origin main

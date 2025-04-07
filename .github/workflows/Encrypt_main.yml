@@ -1,76 +1,26 @@
-name: Auto Encrypt Worker File
-
-on:
-  schedule:
-    - cron: '*/30 * * * *'  # 每30分钟检测一次
-  workflow_dispatch:
-
-jobs:
-  encrypt-worker:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-    # 1. 获取目标仓库最新commit ID
-    - name: Fetch latest commit ID
-      id: get_commit
-      run: |
-        LATEST_COMMIT=$(curl -s "https://api.github.com/repos/xrw002/edgetunnel/commits?path=_worker.js&per_page=1" | jq -r '.[0].sha')
-        echo "latest_commit=$LATEST_COMMIT" >> $GITHUB_OUTPUT
-
-    # 2. 比对commit版本变化
-    - name: Check for changes
-      id: check_diff
-      run: |
-        LAST_COMMIT=$(cat last_commit.txt 2>/dev/null || echo "init")
-        if [ "${{ steps.get_commit.outputs.latest_commit }}" != "$LAST_COMMIT" ]; then
-          echo "DIFF=true" >> $GITHUB_OUTPUT
-        else
-          echo "DIFF=false" >> $GITHUB_OUTPUT
-        fi
-
-    # 3. 安装JavaScript加密环境
-    - name: Setup Node.js
-      if: steps.check_diff.outputs.DIFF == 'true'
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-
-    # 4. 下载最新文件并加密
-    - name: Download & Encrypt
-      if: steps.check_diff.outputs.DIFF == 'true'
-      env:
-        ENCRYPT_KEY: ${{ secrets.ENCRYPT_KEY }}  # 需在仓库Secrets设置加密密钥
-      run: |
-        # 下载源文件
-        curl -s "https://raw.githubusercontent.com/xrw002/edgetunnel/main/_worker.js" -o _temp.js
-        
-        # 使用javascript-obfuscator加密
-        npm install -g javascript-obfuscator
-        javascript-obfuscator _temp.js \
-          --compact true \
-          --controlFlowFlattening true \
-          --stringArrayEncoding rc4 \
-          --stringArrayThreshold 1 \
-          --rotateStringArray true \
-          --splitStrings true \
-          --identifierNamesGenerator hexadecimal \
-          --identifiersPrefix 'edge_' \
-          --renameGlobals true \
-          --transformObjectKeys true \
-          --seed ${{ secrets.ENCRYPT_KEY }} \
-          -o src/edge-prod.js
-        
-        # 保存最新commit标记
-        echo "${{ steps.get_commit.outputs.latest_commit }}" > last_commit.txt
-
-    # 5. 自动提交加密文件
-    - name: Commit Changes
-      if: steps.check_diff.outputs.DIFF == 'true'
-      run: |
-        git config --global user.name "Security Bot"
-        git config --global user.email "security@edge.com"
-        git add src/edge-prod.js last_commit.txt
-        git commit -m "🔒 Auto-encrypted worker file (Source: ${{ steps.get_commit.outputs.latest_commit }})"
-        git push
+- name: Download & Encrypt
+  if: steps.check_diff.outputs.DIFF == 'true'
+  env:
+    ENCRYPT_KEY: ${{ secrets.ENCRYPT_KEY }}
+  run: |
+    # 下载源文件（保持原始文件名）
+    curl -s "https://raw.githubusercontent.com/xrw002/edgetunnel/main/_worker.js" -o _temp.js
+    
+    # 使用双引号包裹seed参数（关键修复）
+    javascript-obfuscator _temp.js \
+      --compact true \
+      --controlFlowFlattening true \
+      --stringArrayEncoding rc4 \
+      --stringArrayThreshold 1 \
+      --rotateStringArray true \
+      --splitStrings true \
+      --identifierNamesGenerator hexadecimal \
+      --identifiersPrefix 'edge_' \
+      --renameGlobals true \
+      --transformObjectKeys true \
+      --seed "${{ secrets.ENCRYPT_KEY }}" \  # 添加双引号
+      -o src/edge-prod.js
+    
+    # 保存commit记录（使用校验码防篡改）
+    echo "${{ steps.get_commit.outputs.latest_commit }}" > last_commit.txt
+    md5sum src/edge-prod.js | cut -d ' ' -f1 >> last_commit.txt

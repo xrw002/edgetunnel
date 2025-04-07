@@ -1,6 +1,7 @@
 name: Encrypt edge.js on Change
 
 on:
+ workflow_dispatch: # 手动触发
   push:
     branches:
       - main  # 根据你的主分支名称调整
